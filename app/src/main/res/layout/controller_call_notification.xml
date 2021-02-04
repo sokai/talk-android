@@ -47,7 +47,8 @@
             android:visibility="gone"
             app:backgroundImage="@color/nc_darkGreen"
             app:placeholderImage="@drawable/ic_call_white_24dp"
-            app:roundAsCircle="true" />
+            app:roundAsCircle="true"
+            tools:visibility="visible"/>
 
         <com.facebook.drawee.view.SimpleDraweeView
             android:id="@+id/callControlHangupView"
@@ -66,7 +67,8 @@
             android:visibility="gone"
             app:backgroundImage="@color/nc_darkGreen"
             app:placeholderImage="@drawable/ic_videocam_white_24px"
-            app:roundAsCircle="true" />
+            app:roundAsCircle="true"
+            tools:visibility="visible"/>
     </LinearLayout>
 
     <RelativeLayout

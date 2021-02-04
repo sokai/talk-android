@@ -46,6 +46,10 @@ import android.widget.ProgressBar;
 import android.widget.RelativeLayout;
 import android.widget.TextView;
 
+import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
+import androidx.appcompat.app.AppCompatActivity;
+
 import com.bluelinelabs.logansquare.LoganSquare;
 import com.facebook.drawee.backends.pipeline.Fresco;
 import com.facebook.drawee.interfaces.DraweeController;
@@ -133,9 +137,6 @@ import java.util.concurrent.TimeUnit;
 
 import javax.inject.Inject;
 
-import androidx.annotation.NonNull;
-import androidx.annotation.Nullable;
-import androidx.appcompat.app.AppCompatActivity;
 import autodagger.AutoInjector;
 import butterknife.BindView;
 import butterknife.OnClick;
@@ -174,24 +175,31 @@ public class CallController extends BaseController {
 
     @BindView(R.id.pip_video_view)
     SurfaceViewRenderer pipVideoView;
-    @BindView(R.id.relative_layout)
-    RelativeLayout relativeLayout;
+    @BindView(R.id.controllerCallLayout)
+    RelativeLayout controllerCallLayout;
     @BindView(R.id.remote_renderers_layout)
     LinearLayout remoteRenderersLayout;
 
-    @BindView(R.id.callControlsRelativeLayout)
-    RelativeLayout callControls;
+    @BindView(R.id.callControlsLinearLayout)
+    LinearLayout callControls;
     @BindView(R.id.call_control_microphone)
     SimpleDraweeView microphoneControlButton;
     @BindView(R.id.call_control_camera)
     SimpleDraweeView cameraControlButton;
     @BindView(R.id.call_control_switch_camera)
     SimpleDraweeView cameraSwitchButton;
-    @BindView(R.id.connectingTextView)
-    TextView connectingTextView;
+    @BindView(R.id.callStateTextView)
+    TextView callStateTextView;
 
-    @BindView(R.id.connectingRelativeLayoutView)
-    RelativeLayout connectingView;
+    @BindView(R.id.callInfosLinearLayout)
+    LinearLayout callInfosLinearLayout;
+    @BindView(R.id.callVoiceOrVideoTextView)
+    TextView callVoiceOrVideoTextView;
+    @BindView(R.id.callConversationNameTextView)
+    TextView callConversationNameTextView;
+
+    @BindView(R.id.callStateRelativeLayoutView)
+    RelativeLayout callStateView;
 
     @BindView(R.id.conversationRelativeLayoutView)
     RelativeLayout conversationView;
@@ -199,7 +207,7 @@ public class CallController extends BaseController {
     @BindView(R.id.errorImageView)
     ImageView errorImageView;
 
-    @BindView(R.id.progress_bar)
+    @BindView(R.id.callStateProgressBar)
     ProgressBar progressBar;
 
     @Inject
@@ -231,6 +239,7 @@ public class CallController extends BaseController {
     private CameraEnumerator cameraEnumerator;
     private String roomToken;
     private UserEntity conversationUser;
+    private String conversationName;
     private String callSession;
     private MediaStream localMediaStream;
     private String credentials;
@@ -247,6 +256,7 @@ public class CallController extends BaseController {
     private Handler callControlHandler = new Handler();
     private Handler cameraSwitchHandler = new Handler();
 
+    // push to talk
     private boolean isPTTActive = false;
     private PulseAnimation pulseAnimation;
     private View.OnClickListener videoOnClickListener;
@@ -273,7 +283,7 @@ public class CallController extends BaseController {
 
     @Parcel
     public enum CallStatus {
-        CALLING, CALLING_TIMEOUT, ESTABLISHED, IN_CONVERSATION, RECONNECTING, OFFLINE, LEAVING, PUBLISHER_FAILED
+        CONNECTING, CALLING_TIMEOUT, JOINED, IN_CONVERSATION, RECONNECTING, OFFLINE, LEAVING, PUBLISHER_FAILED
     }
 
     public CallController(Bundle args) {
@@ -284,6 +294,7 @@ public class CallController extends BaseController {
         roomToken = args.getString(BundleKeys.INSTANCE.getKEY_ROOM_TOKEN(), "");
         conversationUser = args.getParcelable(BundleKeys.INSTANCE.getKEY_USER_ENTITY());
         conversationPassword = args.getString(BundleKeys.INSTANCE.getKEY_CONVERSATION_PASSWORD(), "");
+        conversationName = args.getString(BundleKeys.INSTANCE.getKEY_CONVERSATION_NAME(), "");
         isVoiceOnlyCall = args.getBoolean(BundleKeys.INSTANCE.getKEY_CALL_VOICE_ONLY(), false);
 
         credentials = ApiUtils.getCredentials(conversationUser.getUsername(), conversationUser.getToken());
@@ -299,7 +310,7 @@ public class CallController extends BaseController {
         if (args.getString("state", "").equalsIgnoreCase("resume")) {
             setCallState(CallStatus.IN_CONVERSATION);
         } else {
-            setCallState(CallStatus.CALLING);
+            setCallState(CallStatus.CONNECTING);
         }
     }
 
@@ -476,7 +487,7 @@ public class CallController extends BaseController {
     }
 
     private boolean isConnectionEstablished() {
-        return (currentCallStatus.equals(CallStatus.ESTABLISHED) || currentCallStatus.equals(CallStatus.IN_CONVERSATION));
+        return (currentCallStatus.equals(CallStatus.JOINED) || currentCallStatus.equals(CallStatus.IN_CONVERSATION));
     }
 
     @AfterPermissionGranted(100)
@@ -1144,7 +1155,7 @@ public class CallController extends BaseController {
                     @Override
                     public void onNext(GenericOverall genericOverall) {
                         if (!currentCallStatus.equals(CallStatus.LEAVING)) {
-                            setCallState(CallStatus.ESTABLISHED);
+                            setCallState(CallStatus.JOINED);
 
                             ApplicationWideCurrentRoomHolder.getInstance().setInCall(true);
 
@@ -1330,7 +1341,7 @@ public class CallController extends BaseController {
     private void receivedSignalingMessage(Signaling signaling) throws IOException {
         String messageType = signaling.getType();
 
-        if (!isConnectionEstablished() && !currentCallStatus.equals(CallStatus.CALLING)) {
+        if (!isConnectionEstablished() && !currentCallStatus.equals(CallStatus.CONNECTING)) {
             return;
         }
 
@@ -1558,7 +1569,7 @@ public class CallController extends BaseController {
         // Calculate sessions that join the call
         newSessions.removeAll(oldSesssions);
 
-        if (!isConnectionEstablished() && !currentCallStatus.equals(CallStatus.CALLING)) {
+        if (!isConnectionEstablished() && !currentCallStatus.equals(CallStatus.CONNECTING)) {
             return;
         }
 
@@ -1573,7 +1584,8 @@ public class CallController extends BaseController {
         }
 
         if (newSessions.size() > 0 && !currentCallStatus.equals(CallStatus.IN_CONVERSATION)) {
-            setCallState(CallStatus.IN_CONVERSATION);
+            // TODO: check one more time if deleting/comment out for this is okay!
+//            setCallState(CallStatus.IN_CONVERSATION);
         }
 
         for (String sessionId : oldSesssions) {
@@ -1750,7 +1762,7 @@ public class CallController extends BaseController {
                 boolean enableVideo = peerConnectionEvent.getPeerConnectionEventType().equals(PeerConnectionEvent
                         .PeerConnectionEventType.SENSOR_FAR) && videoOn;
                 if (getActivity() != null && EffortlessPermissions.hasPermissions(getActivity(), PERMISSIONS_CAMERA) &&
-                        (currentCallStatus.equals(CallStatus.CALLING) || isConnectionEstablished()) && videoOn
+                        (currentCallStatus.equals(CallStatus.CONNECTING) || isConnectionEstablished()) && videoOn
                         && enableVideo != localVideoTrack.enabled()) {
                     toggleMedia(enableVideo, true);
                 }
@@ -1958,6 +1970,7 @@ public class CallController extends BaseController {
                         avatarImageView.setController(draweeController);
                     }
                 }
+                setCallState(CallStatus.IN_CONVERSATION);
             }
         }
     }
@@ -2057,7 +2070,7 @@ public class CallController extends BaseController {
     private void gotNick(String sessionId, String nick, String type) {
         String remoteRendererTag = sessionId + "+" + type;
 
-        if (relativeLayout != null) {
+        if (controllerCallLayout != null) {
             RelativeLayout relativeLayout = remoteRenderersLayout.findViewWithTag(remoteRendererTag);
             TextView textView = relativeLayout.findViewById(R.id.peer_nick_text_view);
             if (!textView.getText().equals(nick)) {
@@ -2070,7 +2083,7 @@ public class CallController extends BaseController {
         }
     }
 
-    @OnClick(R.id.connectingRelativeLayoutView)
+    @OnClick(R.id.callStateRelativeLayoutView)
     public void onConnectingViewClick() {
         if (currentCallStatus.equals(CallStatus.CALLING_TIMEOUT)) {
             setCallState(CallStatus.RECONNECTING);
@@ -2088,16 +2101,20 @@ public class CallController extends BaseController {
             }
 
             switch (callState) {
-                case CALLING:
+                case CONNECTING:
                     handler.post(() -> {
                         playCallingSound();
-                        connectingTextView.setText(R.string.nc_connecting_call);
-                        if (connectingView.getVisibility() != View.VISIBLE) {
-                            connectingView.setVisibility(View.VISIBLE);
+                        callStateTextView.setText(R.string.nc_calling);
+                        callConversationNameTextView.setText(conversationName);
+
+                        callVoiceOrVideoTextView.setText(isVoiceOnlyCall ? R.string.nc_voice_call : R.string.nc_video_call);
+
+                        if (callStateView.getVisibility() != View.VISIBLE) {
+                            callStateView.setVisibility(View.VISIBLE);
                         }
 
-                        if (conversationView.getVisibility() != View.INVISIBLE) {
-                            conversationView.setVisibility(View.INVISIBLE);
+                        if (remoteRenderersLayout.getVisibility() != View.INVISIBLE) {
+                            remoteRenderersLayout.setVisibility(View.INVISIBLE);
                         }
 
                         if (progressBar.getVisibility() != View.VISIBLE) {
@@ -2112,17 +2129,18 @@ public class CallController extends BaseController {
                 case CALLING_TIMEOUT:
                     handler.post(() -> {
                         hangup(false);
-                        connectingTextView.setText(R.string.nc_call_timeout);
-                        if (connectingView.getVisibility() != View.VISIBLE) {
-                            connectingView.setVisibility(View.VISIBLE);
+                        callStateTextView.setText(R.string.nc_call_timeout);
+                        callVoiceOrVideoTextView.setText(isVoiceOnlyCall ? R.string.nc_voice_call : R.string.nc_video_call);
+                        if (callStateView.getVisibility() != View.VISIBLE) {
+                            callStateView.setVisibility(View.VISIBLE);
                         }
 
                         if (progressBar.getVisibility() != View.GONE) {
                             progressBar.setVisibility(View.GONE);
                         }
 
-                        if (conversationView.getVisibility() != View.INVISIBLE) {
-                            conversationView.setVisibility(View.INVISIBLE);
+                        if (remoteRenderersLayout.getVisibility() != View.INVISIBLE) {
+                            remoteRenderersLayout.setVisibility(View.INVISIBLE);
                         }
 
                         errorImageView.setImageResource(R.drawable.ic_av_timer_timer_24dp);
@@ -2135,12 +2153,13 @@ public class CallController extends BaseController {
                 case RECONNECTING:
                     handler.post(() -> {
                         playCallingSound();
-                        connectingTextView.setText(R.string.nc_call_reconnecting);
-                        if (connectingView.getVisibility() != View.VISIBLE) {
-                            connectingView.setVisibility(View.VISIBLE);
+                        callStateTextView.setText(R.string.nc_call_reconnecting);
+                        callVoiceOrVideoTextView.setText(isVoiceOnlyCall ? R.string.nc_voice_call : R.string.nc_video_call);
+                        if (callStateView.getVisibility() != View.VISIBLE) {
+                            callStateView.setVisibility(View.VISIBLE);
                         }
-                        if (conversationView.getVisibility() != View.INVISIBLE) {
-                            conversationView.setVisibility(View.INVISIBLE);
+                        if (remoteRenderersLayout.getVisibility() != View.INVISIBLE) {
+                            remoteRenderersLayout.setVisibility(View.INVISIBLE);
                         }
                         if (progressBar.getVisibility() != View.VISIBLE) {
                             progressBar.setVisibility(View.VISIBLE);
@@ -2151,13 +2170,14 @@ public class CallController extends BaseController {
                         }
                     });
                     break;
-                case ESTABLISHED:
+                case JOINED:
                     handler.postDelayed(() -> setCallState(CallStatus.CALLING_TIMEOUT), 45000);
                     handler.post(() -> {
-                        if (connectingView != null) {
-                            connectingTextView.setText(R.string.nc_calling);
-                            if (connectingTextView.getVisibility() != View.VISIBLE) {
-                                connectingView.setVisibility(View.VISIBLE);
+                        callVoiceOrVideoTextView.setText(isVoiceOnlyCall ? R.string.nc_voice_call : R.string.nc_video_call);
+                        if (callStateView != null) {
+                            callStateTextView.setText(R.string.nc_calling);
+                            if (callStateTextView.getVisibility() != View.VISIBLE) {
+                                callStateView.setVisibility(View.VISIBLE);
                             }
                         }
 
@@ -2167,9 +2187,9 @@ public class CallController extends BaseController {
                             }
                         }
 
-                        if (conversationView != null) {
-                            if (conversationView.getVisibility() != View.INVISIBLE) {
-                                conversationView.setVisibility(View.INVISIBLE);
+                        if (remoteRenderersLayout != null) {
+                            if (remoteRenderersLayout.getVisibility() != View.INVISIBLE) {
+                                remoteRenderersLayout.setVisibility(View.INVISIBLE);
                             }
                         }
 
@@ -2183,14 +2203,20 @@ public class CallController extends BaseController {
                 case IN_CONVERSATION:
                     handler.post(() -> {
                         stopCallingSound();
+                        callVoiceOrVideoTextView.setText(isVoiceOnlyCall ? R.string.nc_voice_call : R.string.nc_video_call);
+                        callStateTextView.setText("verbunden");
+
+                        if(!isVoiceOnlyCall){
+                            callInfosLinearLayout.setVisibility(View.GONE);
+                        }
 
                         if (!isPTTActive) {
                             animateCallControls(false, 5000);
                         }
 
-                        if (connectingView != null) {
-                            if (connectingView.getVisibility() != View.INVISIBLE) {
-                                connectingView.setVisibility(View.INVISIBLE);
+                        if (callStateView != null) {
+                            if (callStateView.getVisibility() != View.INVISIBLE) {
+                                callStateView.setVisibility(View.INVISIBLE);
                             }
                         }
 
@@ -2200,9 +2226,9 @@ public class CallController extends BaseController {
                             }
                         }
 
-                        if (conversationView != null) {
-                            if (conversationView.getVisibility() != View.VISIBLE) {
-                                conversationView.setVisibility(View.VISIBLE);
+                        if (remoteRenderersLayout != null) {
+                            if (remoteRenderersLayout.getVisibility() != View.VISIBLE) {
+                                remoteRenderersLayout.setVisibility(View.VISIBLE);
                             }
                         }
 
@@ -2217,18 +2243,18 @@ public class CallController extends BaseController {
                     handler.post(() -> {
                         stopCallingSound();
 
-                        if (connectingTextView != null) {
-                            connectingTextView.setText(R.string.nc_offline);
+                        if (callStateTextView != null) {
+                            callStateTextView.setText(R.string.nc_offline);
 
-                            if (connectingView.getVisibility() != View.VISIBLE) {
-                                connectingView.setVisibility(View.VISIBLE);
+                            if (callStateView.getVisibility() != View.VISIBLE) {
+                                callStateView.setVisibility(View.VISIBLE);
                             }
                         }
 
 
-                        if (conversationView != null) {
-                            if (conversationView.getVisibility() != View.INVISIBLE) {
-                                conversationView.setVisibility(View.INVISIBLE);
+                        if (remoteRenderersLayout != null) {
+                            if (remoteRenderersLayout.getVisibility() != View.INVISIBLE) {
+                                remoteRenderersLayout.setVisibility(View.INVISIBLE);
                             }
                         }
 
@@ -2250,9 +2276,10 @@ public class CallController extends BaseController {
                     handler.post(() -> {
                         if (!isDestroyed() && !isBeingDestroyed()) {
                             stopCallingSound();
-                            connectingTextView.setText(R.string.nc_leaving_call);
-                            connectingView.setVisibility(View.VISIBLE);
-                            conversationView.setVisibility(View.INVISIBLE);
+                            callVoiceOrVideoTextView.setText(isVoiceOnlyCall ? R.string.nc_voice_call : R.string.nc_video_call);
+                            callStateTextView.setText(R.string.nc_leaving_call);
+                            callStateView.setVisibility(View.VISIBLE);
+                            remoteRenderersLayout.setVisibility(View.INVISIBLE);
                             progressBar.setVisibility(View.VISIBLE);
                             errorImageView.setVisibility(View.GONE);
                         }
@@ -2265,7 +2292,8 @@ public class CallController extends BaseController {
 
     private void playCallingSound() {
         stopCallingSound();
-        Uri ringtoneUri = Uri.parse("android.resource://" + getApplicationContext().getPackageName() + "/raw/librem_by_feandesign_call");
+        Uri ringtoneUri = Uri.parse("android.resource://" + getApplicationContext().getPackageName() + "/raw" +
+                "/outgoing_call");
         if (getActivity() != null) {
             mediaPlayer = new MediaPlayer();
             try {
@@ -2355,5 +2383,12 @@ public class CallController extends BaseController {
                 hangup(false);
             }*/
         }
+    }
+
+    private int dpToPx(int dp) {
+        float density = getResources()
+                .getDisplayMetrics()
+                .density;
+        return Math.round((float) dp * density);
     }
 }

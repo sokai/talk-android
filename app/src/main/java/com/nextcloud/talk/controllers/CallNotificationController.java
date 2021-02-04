@@ -321,72 +321,13 @@ public class CallNotificationController extends BaseController {
         }
 
         if (DoNotDisturbUtils.INSTANCE.shouldPlaySound()) {
-            String callRingtonePreferenceString = appPreferences.getCallRingtoneUri();
-            Uri ringtoneUri;
-
-            if (TextUtils.isEmpty(callRingtonePreferenceString)) {
-                // play default sound
-                ringtoneUri = Uri.parse("android.resource://" + getApplicationContext().getPackageName() +
-                        "/raw/librem_by_feandesign_call");
-            } else {
-                try {
-                    RingtoneSettings ringtoneSettings = LoganSquare.parse(callRingtonePreferenceString, RingtoneSettings.class);
-                    ringtoneUri = ringtoneSettings.getRingtoneUri();
-                } catch (IOException e) {
-                    Log.e(TAG, "Failed to parse ringtone settings");
-                    ringtoneUri = Uri.parse("android.resource://" + getApplicationContext().getPackageName() +
-                            "/raw/librem_by_feandesign_call");
-                }
-            }
-
-            if (ringtoneUri != null && getActivity() != null) {
-                mediaPlayer = new MediaPlayer();
-                try {
-                    mediaPlayer.setDataSource(getActivity(), ringtoneUri);
-
-                    mediaPlayer.setLooping(true);
-                    AudioAttributes audioAttributes = new AudioAttributes.Builder().setContentType(AudioAttributes
-                            .CONTENT_TYPE_SONIFICATION).setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE).build();
-                    mediaPlayer.setAudioAttributes(audioAttributes);
-
-                    mediaPlayer.setOnPreparedListener(mp -> mediaPlayer.start());
-
-                    mediaPlayer.prepareAsync();
-                } catch (IOException e) {
-                    Log.e(TAG, "Failed to set data source");
-                }
-            }
+            playRingtoneSound();
         }
 
         if (DoNotDisturbUtils.INSTANCE.shouldVibrate(appPreferences.getShouldVibrateSetting())) {
-            vibrator = (Vibrator) getApplicationContext().getSystemService(Context.VIBRATOR_SERVICE);
-
-            if (vibrator != null) {
-                long[] vibratePattern = new long[]{0, 400, 800, 600, 800, 800, 800, 1000};
-                int[] amplitudes = new int[]{0, 255, 0, 255, 0, 255, 0, 255};
-
-                VibrationEffect vibrationEffect;
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    if (vibrator.hasAmplitudeControl()) {
-                        vibrationEffect = VibrationEffect.createWaveform(vibratePattern, amplitudes, -1);
-                        //vibrator.vibrate(vibrationEffect);
-                    } else {
-                        vibrationEffect = VibrationEffect.createWaveform(vibratePattern, -1);
-                        //vibrator.vibrate(vibrationEffect);
-                    }
-                } else {
-                    //vibrator.vibrate(vibratePattern, -1);
-                }
-            }
-
-            handler.postDelayed(() -> {
-                if (vibrator != null) {
-                    vibrator.cancel();
-                }
-            }, 10000);
+            vibrate();
         }
     }
-
 
     @Subscribe(threadMode = ThreadMode.MAIN)
     public void onMessageEvent(ConfigurationChangeEvent configurationChangeEvent) {
@@ -508,5 +449,72 @@ public class CallNotificationController extends BaseController {
                 disposable.dispose();
             }
         }
+    }
+
+    @SuppressLint("LongLogTag")
+    private void playRingtoneSound() {
+        String callRingtonePreferenceString = appPreferences.getCallRingtoneUri();
+        Uri ringtoneUri;
+
+        if (TextUtils.isEmpty(callRingtonePreferenceString)) {
+            // play default sound
+            ringtoneUri = Uri.parse("android.resource://" + getApplicationContext().getPackageName() +
+                    "/raw/librem_by_feandesign_call");
+        } else {
+            try {
+                RingtoneSettings ringtoneSettings = LoganSquare.parse(callRingtonePreferenceString, RingtoneSettings.class);
+                ringtoneUri = ringtoneSettings.getRingtoneUri();
+            } catch (IOException e) {
+                Log.e(TAG, "Failed to parse ringtone settings");
+                ringtoneUri = Uri.parse("android.resource://" + getApplicationContext().getPackageName() +
+                        "/raw/librem_by_feandesign_call");
+            }
+        }
+
+        if (ringtoneUri != null && getActivity() != null) {
+            mediaPlayer = new MediaPlayer();
+            try {
+                mediaPlayer.setDataSource(getActivity(), ringtoneUri);
+
+                mediaPlayer.setLooping(true);
+                AudioAttributes audioAttributes = new AudioAttributes.Builder().setContentType(AudioAttributes
+                        .CONTENT_TYPE_SONIFICATION).setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE).build();
+                mediaPlayer.setAudioAttributes(audioAttributes);
+
+                mediaPlayer.setOnPreparedListener(mp -> mediaPlayer.start());
+
+                mediaPlayer.prepareAsync();
+            } catch (IOException e) {
+                Log.e(TAG, "Failed to set data source");
+            }
+        }
+    }
+
+    private void vibrate() {
+        vibrator = (Vibrator) getApplicationContext().getSystemService(Context.VIBRATOR_SERVICE);
+
+        if (vibrator != null) {
+            long[] vibratePattern = new long[]{0, 400, 800, 600, 800, 800, 800, 1000};
+            int[] amplitudes = new int[]{0, 255, 0, 255, 0, 255, 0, 255};
+
+            VibrationEffect vibrationEffect;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                if (vibrator.hasAmplitudeControl()) {
+                    vibrationEffect = VibrationEffect.createWaveform(vibratePattern, amplitudes, -1);
+                    //vibrator.vibrate(vibrationEffect);
+                } else {
+                    vibrationEffect = VibrationEffect.createWaveform(vibratePattern, -1);
+                    //vibrator.vibrate(vibrationEffect);
+                }
+            } else {
+                //vibrator.vibrate(vibratePattern, -1);
+            }
+        }
+
+        handler.postDelayed(() -> {
+            if (vibrator != null) {
+                vibrator.cancel();
+            }
+        }, 10000);
     }
 }
